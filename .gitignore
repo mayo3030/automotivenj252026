@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Environment
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+
+# Docker volumes
+postgres_data/
+
+# Media (downloaded images)
+backend/media/*
+!backend/media/.gitkeep
+
+# Scrape progress files
+backend/.scrape_progress/
+backend/.sync_progress.json
+backend/app/.scrape_progress/
+*/.scrape_progress/
+
+# Database
+backend/*.db
+backend/*.db-journal
+
+# OS
+.DS_Store
+Thumbs.db
+backend/core
+core
