@@ -163,7 +163,7 @@ async def _quick_website_check(max_pages: int = 0, track_progress: bool = False)
                 await asyncio.sleep(1.0)
 
                 # Extract detail links + JSON-LD data from the page
-                page_data = await page.evaluate("""
+                page_data = await page.evaluate(r"""
                     () => {
                         const results = [];
                         // Get detail links

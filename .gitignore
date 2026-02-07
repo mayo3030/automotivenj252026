@@ -1,43 +1,68 @@
-# Python
+# ─── Python ──────────────────────────────────────────────
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
 dist/
 build/
 .venv/
 venv/
+.eggs/
+*.egg
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
 
-# Node
+# ─── Node ────────────────────────────────────────────────
 node_modules/
 frontend/dist/
 
-# Environment
+# ─── Environment / secrets ───────────────────────────────
+.env
 .env.local
 .env.production
+.env.*.local
 
-# IDE
+# ─── IDE ─────────────────────────────────────────────────
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# Docker volumes
+# ─── Database (local SQLite) ─────────────────────────────
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ─── Docker volumes ─────────────────────────────────────
 postgres_data/
 
-# Media (downloaded images)
+# ─── Scraper runtime files ───────────────────────────────
+.scrape_progress/
+backend/.scrape_progress/
+backend/app/.scrape_progress/
+backend/.sync_progress.json
+
+# ─── Media (downloaded vehicle photos) ───────────────────
 backend/media/*
 !backend/media/.gitkeep
 
-# Scrape progress files
-backend/.scrape_progress/
-backend/.sync_progress.json
-backend/app/.scrape_progress/
-*/.scrape_progress/
-
-# Database
-backend/*.db
-backend/*.db-journal
-
-# OS
+# ─── OS junk ─────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-backend/core
+Desktop.ini
+
+# ─── Core dumps ──────────────────────────────────────────
 core
+backend/core
+
+# ─── Build artifacts ─────────────────────────────────────
+frontend/tsconfig.tsbuildinfo
+
+# ─── Logs ────────────────────────────────────────────────
+*.log
+logs/

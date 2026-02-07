@@ -1,19 +1,30 @@
+# ── Core Framework ───────────────────────────────────────────
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
-psycopg2-binary==2.9.10
-alembic==1.14.1
 pydantic==2.10.4
 pydantic-settings==2.7.1
 python-dotenv==1.0.1
+python-multipart==0.0.20
+
+# ── Database ─────────────────────────────────────────────────
+sqlalchemy[asyncio]==2.0.36
+aiosqlite==0.20.0              # SQLite async driver (local dev)
+asyncpg==0.30.0                # PostgreSQL async driver (Docker/prod)
+psycopg2-binary==2.9.10        # PostgreSQL sync driver (Celery)
+alembic==1.14.1                # Database migrations
+
+# ── Background Tasks ────────────────────────────────────────
 celery[redis]==5.4.0
 redis==5.2.1
+
+# ── Scraper ──────────────────────────────────────────────────
 playwright==1.49.1
 beautifulsoup4==4.12.3
 lxml==5.3.0
 httpx==0.28.1
-python-multipart==0.0.20
+
+# ── Media & Export ───────────────────────────────────────────
 aiofiles==24.1.0
 Pillow==11.1.0
 reportlab==4.2.5
+numpy>=1.26.0                  # Dealer-frame detection in images
