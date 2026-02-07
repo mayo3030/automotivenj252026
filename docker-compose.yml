@@ -1,32 +1,44 @@
 version: "3.9"
 
+# ============================================================
+#  AutoAvenue Scraper — Docker Compose
+# ============================================================
+#  Quick start:   docker compose up --build
+#  Detached:      docker compose up -d --build
+#  Logs:          docker compose logs -f backend
+#  Tear down:     docker compose down -v
+# ============================================================
+
 services:
+  # ── PostgreSQL ──────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-autoavenue}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autoavenue_secret_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-autoavenue}
     ports:
-      - "5533:5533"
+      - "5533:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U autoavenue -d autoavenue"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # ── Redis (optional — only for Celery workers) ──────────
   redis:
     image: redis:7-alpine
     ports:
-      - "6480:6480"
+      - "6480:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # ── Backend (FastAPI + Playwright) ──────────────────────
   backend:
     build:
       context: ./backend
@@ -35,8 +47,15 @@ services:
       - "8100:8100"
     env_file:
       - .env
+    environment:
+      # Override for Docker networking
+      DATABASE_URL: postgresql+asyncpg://autoavenue:autoavenue_secret_2026@postgres:5432/autoavenue
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
     volumes:
-      - ./backend/media:/app/media
+      - ./backend:/app
+      - backend_media:/app/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,40 +67,55 @@ services:
         uvicorn app.main:app --host 0.0.0.0 --port 8100 --reload
       "
 
+  # ── Celery Worker (optional — background tasks) ─────────
   celery-worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://autoavenue:autoavenue_secret_2026@postgres:5432/autoavenue
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
     volumes:
-      - ./backend/media:/app/media
+      - backend_media:/app/media
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A app.tasks worker --loglevel=info --concurrency=2
+    profiles: ["celery"]  # Only starts with: docker compose --profile celery up
 
+  # ── Celery Beat (optional — scheduled tasks) ──────────
   celery-beat:
     build:
       context: ./backend
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://autoavenue:autoavenue_secret_2026@postgres:5432/autoavenue
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A app.tasks beat --loglevel=info
+    profiles: ["celery"]
 
+  # ── Frontend (React + Nginx) ────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8100}
+        VITE_API_BASE_URL: ""
     ports:
       - "3100:80"
     depends_on:
@@ -89,3 +123,4 @@ services:
 
 volumes:
   postgres_data:
+  backend_media:

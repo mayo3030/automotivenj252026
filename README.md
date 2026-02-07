@@ -1,190 +1,348 @@
 # AutoAvenue Scraper
 
-A full-stack web application for scraping and managing vehicle inventory from [Automotive Avenue NJ](https://www.automotiveavenuenj.com). Features a React frontend, FastAPI backend, Playwright-powered scraper, Celery background tasks, PostgreSQL database, and Redis cache/broker.
+Inventory scraper and management dashboard for [Automotive Avenue NJ](https://www.automotiveavenuenj.com) (powered by ebizautos).
 
-## Architecture
+| Component | Stack | Port |
+|-----------|-------|------|
+| Backend   | FastAPI, SQLAlchemy, Playwright | `:8100` |
+| Frontend  | React 18, Vite, Tailwind CSS | `:5273` (dev) / `:3100` (Docker) |
+| Database  | SQLite (dev) / PostgreSQL 16 (Docker) | `:5533` |
+| Queue     | Redis + Celery (optional) | `:6480` |
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Docker Compose                                                 │
-│                                                                 │
-│  ┌──────────────┐   REST API   ┌──────────────────────────────┐ │
-│  │   Frontend   │◄────────────►│   Backend (FastAPI)          │ │
-│  │  React+Vite  │              │   ├── Playwright Scraper     │ │
-│  │  +Tailwind   │              │   └── Celery Worker          │ │
-│  └──────────────┘              └───────────┬──────────────────┘ │
-│                                            │                    │
-│                         ┌──────────────────┼──────────────┐     │
-│                         ▼                  ▼              │     │
-│                  ┌─────────────┐   ┌─────────────┐        │     │
-│                  │  PostgreSQL │   │    Redis    │        │     │
-│                  │  (Database) │   │   (Broker)  │        │     │
-│                  └─────────────┘   └─────────────┘        │     │
-└─────────────────────────────────────────────────────────────────┘
-```
+---
 
-## Quick Start
-
-### Prerequisites
-- Docker and Docker Compose
-
-### Run with Docker
+## Quick Start (Local)
 
 ```bash
-# Clone and start all services
-docker-compose up --build
+# 1. Clone & enter
+git clone https://github.com/mayo3030/automotivenj252026.git
+cd automotivenj252026
 
-# Access the application:
-# - Frontend:    http://localhost:3100
-# - Backend API: http://localhost:8100
-# - Swagger UI:  http://localhost:8100/docs
+# 2. One-command setup (venv, deps, Playwright, DB)
+bash scripts/setup.sh
+
+# 3. Start developing
+make dev          # backend :8100 + frontend :5273
 ```
 
-### Environment Variables
+Open [http://localhost:5273](http://localhost:5273) — the UI proxies `/api/*` to the backend automatically.
 
-Copy `.env` and adjust as needed. Key variables:
+> **Swagger docs:** [http://localhost:8100/docs](http://localhost:8100/docs)
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `POSTGRES_USER` | Database user | `autoavenue` |
-| `POSTGRES_PASSWORD` | Database password | `autoavenue_secret_2026` |
-| `DATABASE_URL` | Full DB connection string | see `.env` |
-| `REDIS_URL` | Redis connection | `redis://redis:6480/0` |
-| `SCRAPE_BASE_URL` | Target site URL | `https://www.automotiveavenuenj.com` |
-| `VITE_API_BASE_URL` | API URL for frontend | `http://localhost:8100` |
+---
+
+## Quick Start (Docker)
+
+```bash
+cp .env.example .env
+# Uncomment the PostgreSQL lines in .env, then:
+docker compose up --build
+
+# With Celery workers (scheduled scrapes):
+docker compose --profile celery up --build
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3100 |
+| Backend API | http://localhost:8100 |
+| Swagger UI | http://localhost:8100/docs |
+
+---
 
 ## Project Structure
 
 ```
-automotiveavenue/
-├── docker-compose.yml           # 5 services: frontend, backend, celery, postgres, redis
-├── .env                         # Environment variables
+automotivenj252026/
+├── Makefile                     # Dev commands (make help)
+├── docker-compose.yml           # Full stack: pg, redis, backend, frontend, celery
+├── .env.example                 # Copy to .env — all config documented inline
+├── scripts/
+│   ├── setup.sh                 # One-time bootstrap (venv, deps, DB, Playwright)
+│   └── dev.sh                   # Start dev servers (both/back/front)
+│
 ├── backend/
 │   ├── Dockerfile               # Python 3.12 + Playwright Chromium
-│   ├── requirements.txt
+│   ├── requirements.txt         # Production deps (pinned)
+│   ├── requirements-dev.txt     # Dev/test deps (ruff, pytest, mypy)
+│   ├── pytest.ini               # Test runner config
+│   ├── scrape_real.py           # Standalone CLI scraper (Playwright)
+│   │
 │   ├── app/
-│   │   ├── main.py              # FastAPI app entry, CORS, routers
-│   │   ├── config.py            # Settings via pydantic-settings
-│   │   ├── database.py          # SQLAlchemy async engine + session
-│   │   ├── models.py            # ORM: Vehicle, ScrapeLog, ApiKey
-│   │   ├── schemas.py           # Pydantic request/response schemas
-│   │   ├── auth.py              # API key authentication dependency
-│   │   ├── export.py            # CSV, JSON, PDF export
-│   │   ├── tasks.py             # Celery tasks (scrape jobs, scheduling)
+│   │   ├── main.py              # FastAPI app — CORS, lifespan, router registration
+│   │   ├── config.py            # pydantic-settings: DB, Redis, scraper config
+│   │   ├── database.py          # SQLAlchemy async engine, session, init_db()
+│   │   ├── models.py            # ORM models (7 tables — see DB Schema below)
+│   │   ├── schemas.py           # Pydantic request/response models
+│   │   ├── auth.py              # API key auth dependency (X-API-Key header)
+│   │   ├── export.py            # CSV, JSON, PDF export helpers
+│   │   ├── tasks.py             # Celery tasks + daily beat schedule
+│   │   │
 │   │   ├── routers/
-│   │   │   ├── vehicles.py      # /api/vehicles endpoints
-│   │   │   ├── scrape.py        # /api/scrape endpoints
-│   │   │   ├── stats.py         # /api/stats endpoint
-│   │   │   └── api_keys.py      # API key management
+│   │   │   ├── vehicles.py      # /api/vehicles — CRUD, search, export
+│   │   │   ├── scrape.py        # /api/scrape  — trigger, status, logs
+│   │   │   ├── monitor.py       # /api/monitor — 24/7 auto-sync, compare, progress
+│   │   │   ├── stats.py         # /api/stats   — dashboard aggregates
+│   │   │   ├── history.py       # /api/history — price history, change logs
+│   │   │   └── api_keys.py      # /api/keys    — key management
+│   │   │
 │   │   └── scraper/
-│   │       ├── scraper.py       # Playwright scraping logic
-│   │       ├── parser.py        # HTML parsing + data extraction
-│   │       └── utils.py         # User-agent rotation, delays
-│   └── media/                   # Downloaded vehicle images
-├── frontend/
-│   ├── Dockerfile               # Node 20 build + Nginx serve
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── tailwind.config.js
-│   ├── nginx.conf               # Reverse proxy config
-│   └── src/
-│       ├── main.tsx
-│       ├── App.tsx              # React Router setup
-│       ├── api/client.ts        # Axios API client + types
-│       ├── components/          # Layout, StatCard, Spinner, Pagination, VehicleCard
-│       ├── pages/
-│       │   ├── Dashboard.tsx    # Stats overview
-│       │   ├── Scrape.tsx       # Scrape control panel
-│       │   ├── Inventory.tsx    # Vehicle grid/table + filters
-│       │   ├── VehicleDetail.tsx # Single vehicle + image gallery
-│       │   └── ApiDocs.tsx      # API docs + key management
-│       └── hooks/               # useFetch, usePolling
-└── README.md
+│   │       ├── scraper.py       # Playwright browser automation (AutoAvenueScaper)
+│   │       ├── parser.py        # HTML/JSON-LD extraction
+│   │       └── utils.py         # UA rotation, delays, retry, dealer-frame removal
+│   │
+│   ├── media/                   # Downloaded vehicle photos: media/{VIN}/001.jpg
+│   └── tests/
+│       └── test_health.py       # Smoke tests (health, vehicles, stats)
+│
+└── frontend/
+    ├── Dockerfile               # Node 20 build → Nginx serve
+    ├── package.json
+    ├── vite.config.ts           # Dev server :5273, proxy /api → :8100
+    ├── tailwind.config.js       # Custom "brand" color palette
+    ├── nginx.conf               # Production reverse proxy
+    ├── serve.py                 # Lightweight SPA server (optional)
+    │
+    └── src/
+        ├── main.tsx             # React entry point
+        ├── App.tsx              # Routes: /, /scrape, /history, /logs, /inventory, /api-docs
+        ├── index.css            # Tailwind base + custom components
+        │
+        ├── api/
+        │   └── client.ts        # Axios client, TypeScript models, all API functions
+        │
+        ├── components/
+        │   ├── Layout.tsx       # Sidebar nav + main content area
+        │   ├── StatCard.tsx     # Dashboard stat cards
+        │   ├── VehicleCard.tsx  # Vehicle grid card
+        │   ├── Pagination.tsx   # Page navigation
+        │   └── Spinner.tsx      # Loading spinner
+        │
+        ├── pages/
+        │   ├── Dashboard.tsx    # Stats overview (totals, makes, last scrape)
+        │   ├── Scrape.tsx       # 2-step workflow: Inventory Sync → Scrape Control
+        │   ├── Inventory.tsx    # Vehicle grid/table with filters + sorting
+        │   ├── VehicleDetail.tsx# Single vehicle detail + photo gallery
+        │   ├── History.tsx      # Price history + change timeline
+        │   ├── Logs.tsx         # System logs viewer
+        │   └── ApiDocs.tsx      # API docs + key management
+        │
+        └── hooks/
+            ├── useFetch.ts      # Generic data fetcher
+            └── usePolling.ts    # Interval-based polling
 ```
+
+---
+
+## Make Commands
+
+```bash
+make help          # Show all commands
+
+# Setup
+make setup         # Full bootstrap (venv, deps, DB, Playwright)
+make install-back  # Backend deps only
+make install-front # Frontend deps only
+make db-init       # Initialize database tables
+
+# Development
+make dev           # Start both servers (parallel)
+make dev-back      # Backend only (uvicorn --reload)
+make dev-front     # Frontend only (Vite HMR)
+
+# Scraping
+make scrape        # Scrape page 1 only
+make scrape-all    # Scrape ALL pages (~740 vehicles)
+make scrape-n N=5  # Scrape N pages
+
+# Code Quality
+make lint          # Ruff linter
+make format        # Ruff formatter
+make typecheck     # TypeScript type-check
+make test          # Pytest
+
+# Build & Deploy
+make build         # Build frontend for production
+make docker-up     # Docker Compose up
+make docker-down   # Docker Compose down
+
+# Database
+make db-reset      # Drop and recreate SQLite DB
+make db-shell      # Open SQLite shell
+
+# Utilities
+make health        # Check backend health
+make status        # Show project status
+make clean         # Remove caches/builds
+make clean-all     # Remove everything (venv, node_modules)
+```
+
+---
+
+## How the Scraper Works
+
+### Target Site
+
+Automotive Avenue NJ uses the **ebizautos** dealer platform:
+- **Base URL:** `https://autoavenj.ebizautos.com`
+- **Inventory page 1 (vanity):** `/used-cars.aspx`
+- **Paginated:** `/inventory.aspx?_vstatus=3&_used=true&_page=N`
+- **~74 pages, ~740 vehicles, 10 per page**
+
+### Two-Step Workflow (UI: `/scrape`)
+
+1. **Step 1 — Inventory Sync Check**
+   - Playwright visits inventory pages (site blocks plain HTTP with 202 empty body)
+   - Extracts VINs, year/make/model, prices from JSON-LD + detail links
+   - Compares against local DB: matched, new on site, removed, price changed
+   - Real-time progress via `/api/monitor/sync-progress` (polled every 2s)
+
+2. **Step 2 — Targeted Scrape**
+   - Only scrapes new/changed vehicles (not the full inventory again)
+   - Visits each detail page for full specs + all photo URLs
+   - Downloads images to `backend/media/{VIN}/`
+   - Updates DB with new/changed records; marks removed VINs as inactive
+
+### 24/7 Auto-Monitor
+
+Background async loop within FastAPI (no Celery needed):
+- Configurable interval (5 min – 24 hr) and page range
+- If drift detected → auto-triggers a full scrape
+- Logs all activity to `system_logs` table
+
+### Standalone CLI Scraper
+
+```bash
+# From backend/ with venv activated:
+python scrape_real.py                           # page 1
+python scrape_real.py --pages 5                 # first 5 pages
+python scrape_real.py --pages 0                 # ALL pages
+python scrape_real.py --task-id scrape-custom   # with progress tracking
+```
+
+---
 
 ## API Endpoints
 
+### Vehicles
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/vehicles` | Paginated list with filters & sorting |
-| `GET` | `/api/vehicles/search?q=` | Search by VIN, stock#, make, or model |
-| `GET` | `/api/vehicles/export?format=` | Export as CSV, JSON, or PDF |
-| `GET` | `/api/vehicles/{vin}` | Single vehicle with all fields |
-| `POST` | `/api/scrape/trigger` | Start a new scrape job |
-| `GET` | `/api/scrape/status` | Real-time scrape progress |
-| `GET` | `/api/scrape/logs` | Paginated scrape history |
-| `GET` | `/api/stats` | Dashboard statistics |
-| `GET` | `/api/keys` | List API keys |
-| `POST` | `/api/keys` | Create a new API key |
-| `DELETE` | `/api/keys/{id}` | Revoke an API key |
+| `GET`  | `/api/vehicles` | Paginated list (filters: make, model, year, price, mileage, body_style) |
+| `GET`  | `/api/vehicles/search?q=` | Search by VIN, stock#, make, model |
+| `GET`  | `/api/vehicles/export?format=csv\|json\|pdf` | Bulk export |
+| `GET`  | `/api/vehicles/{vin}` | Single vehicle detail |
 
-### Query Parameters for `/api/vehicles`
+### Scrape Control
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/scrape/trigger` | Start scrape (body: `{pages: N}`, 0=all) |
+| `GET`  | `/api/scrape/status` | Real-time scrape progress |
+| `GET`  | `/api/scrape/logs` | Paginated scrape history |
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `make` | string | Filter by make (fuzzy) |
-| `model` | string | Filter by model (fuzzy) |
-| `year_min` / `year_max` | int | Year range |
-| `price_min` / `price_max` | float | Price range |
-| `mileage_min` / `mileage_max` | int | Mileage range |
-| `body_style` | string | Filter by body style |
-| `sort_by` | string | Sort field (price, year, mileage, make, created_at) |
-| `order` | string | asc or desc |
-| `page` / `per_page` | int | Pagination (default 1/20) |
+### Monitor / Sync
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/api/monitor/compare?pages=N` | Manual inventory comparison (Playwright) |
+| `GET`  | `/api/monitor/sync-progress` | Real-time sync check progress |
+| `GET`  | `/api/monitor/config` | Monitor settings |
+| `PUT`  | `/api/monitor/config` | Update monitor settings |
+| `GET`  | `/api/monitor/logs` | System event logs |
 
-### Authentication
+### Stats & History
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/api/stats` | Dashboard aggregates |
+| `GET`  | `/api/history/vehicles` | All vehicles with price history summary |
+| `GET`  | `/api/history/vehicles/{vin}` | Full history for one vehicle |
 
-External API consumers must pass an API key via the `X-API-Key` header. Keys are managed through the UI or API.
+### API Keys
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/api/keys` | List API keys |
+| `POST` | `/api/keys` | Create key (body: `{name: "..."}`) |
+| `DELETE`| `/api/keys/{id}` | Revoke key |
 
-```bash
-curl -H "X-API-Key: your_key_here" http://localhost:8100/api/vehicles
-```
+**Authentication:** External consumers use `X-API-Key` header. Internal frontend requests (localhost origins) are auto-allowed.
+
+---
 
 ## Database Schema
 
-### `vehicles` table
-- `id`, `stock_number`, `vin` (unique), `year`, `make`, `model`, `trim`
-- `price`, `mileage`, `exterior_color`, `interior_color`
-- `body_style`, `drivetrain`, `engine`, `transmission`
-- `photos` (JSON array), `detail_url`, `is_active`, `created_at`, `updated_at`
+7 tables managed by SQLAlchemy ORM (`backend/app/models.py`):
 
-### `scrape_logs` table
-- `id`, `task_id`, `started_at`, `finished_at`, `status` (running/completed/failed)
-- `vehicles_found`, `vehicles_new`, `vehicles_updated`, `vehicles_removed`
-- `errors` (JSON), `log_output`
+| Table | Purpose | Key Fields |
+|-------|---------|------------|
+| `vehicles` | Inventory records | vin (unique), year, make, model, price, mileage, photos (JSON), is_active |
+| `scrape_logs` | Scrape run history | task_id, status, vehicles_found/new/updated/removed |
+| `api_keys` | API authentication | key (unique), name, is_active, request_count |
+| `system_logs` | Monitor event log | timestamp, level, source, message, details |
+| `monitor_config` | Singleton config | enabled, interval_minutes, pages_to_scrape |
+| `vehicle_price_history` | Price tracking | vin, price, recorded_at, source |
+| `vehicle_change_log` | Field-level audit | vin, change_type, field_name, old_value, new_value |
 
-### `api_keys` table
-- `id`, `key` (unique), `name`, `is_active`, `created_at`, `last_used_at`, `request_count`
+---
 
-## Scraper Details
+## Environment Configuration
 
-- **Engine**: Playwright async API with headless Chromium
-- **Anti-detection**: Random user agents, 2-5s delays, navigator.webdriver override
-- **Pagination**: Automatic next-page detection and traversal
-- **Retry logic**: Up to 3 retries with exponential backoff per page
-- **Image download**: Saves to `media/{vin}/` directory
-- **Diff detection**: Compares scraped VINs vs DB to track new/updated/removed vehicles
-- **Scheduling**: Celery Beat runs daily at 3 AM ET (configurable)
+Copy `.env.example` to `.env`. All variables are documented inline.
 
-## Development
+| Variable | Default (Local Dev) | Notes |
+|----------|-------------------|-------|
+| `DATABASE_URL` | `sqlite+aiosqlite:///autoavenue.db` | Switch to PostgreSQL for Docker |
+| `REDIS_URL` | `redis://localhost:6480/0` | Only needed for Celery |
+| `SECRET_KEY` | placeholder | Change in production |
+| `SCRAPE_BASE_URL` | `https://autoavenj.ebizautos.com` | Target dealer site |
+| `SCRAPE_DELAY_MIN/MAX` | `2` / `5` | Politeness delay range (seconds) |
+| `MEDIA_DIR` | `media` | Relative to backend/ |
+| `VITE_API_BASE_URL` | `http://localhost:8100` | Vite dev proxy target |
 
-### Backend (local)
+---
+
+## Development Workflow
+
+### Daily Development
 ```bash
-cd backend
-pip install -r requirements.txt
-playwright install chromium
-uvicorn app.main:app --reload --port 8100
+make dev                    # start both servers
+# Edit code — backend auto-reloads, frontend has HMR
+# Open http://localhost:5273
 ```
 
-### Frontend (local)
+### Running a Scrape
 ```bash
-cd frontend
-npm install
-npm run dev
+# Option 1: From the UI
+# Go to /scrape → Step 1: Sync Check → Step 2: Scrape
+
+# Option 2: From the API
+curl -X POST http://localhost:8100/api/scrape/trigger \
+  -H "Content-Type: application/json" \
+  -d '{"pages": 1}'
+
+# Option 3: CLI
+make scrape                 # page 1
+make scrape-all             # all pages
 ```
 
-### Celery Worker (local)
-```bash
-cd backend
-celery -A app.tasks worker --loglevel=info
-```
+### Adding a New API Endpoint
+1. Add Pydantic schema in `backend/app/schemas.py`
+2. Add route in the appropriate `backend/app/routers/*.py`
+3. If new table needed, add model in `backend/app/models.py`
+4. Import router in `backend/app/main.py` (if new file)
+5. Add corresponding API function in `frontend/src/api/client.ts`
+
+### Adding a New Frontend Page
+1. Create page component in `frontend/src/pages/NewPage.tsx`
+2. Add route in `frontend/src/App.tsx`
+3. Add nav link in `frontend/src/components/Layout.tsx`
+
+---
+
+## Key Technical Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Playwright over httpx** | Site returns `202 + empty body` for plain HTTP; requires full browser rendering |
+| **SQLite for dev** | Zero setup; `aiosqlite` driver for async; swap to PostgreSQL via env var |
+| **Background monitor (no Celery)** | AsyncIO task within FastAPI; simpler deployment; Celery optional for heavy workloads |
+| **Dealer-frame removal** | Vehicle photos have logo overlays; auto-detected and cropped via Pillow/numpy |
+| **JSON-LD extraction** | ebizautos embeds structured Vehicle data in `<script type="application/ld+json">` |
+| **2-step workflow** | Compare first, scrape only what changed; avoids unnecessary load on target site |

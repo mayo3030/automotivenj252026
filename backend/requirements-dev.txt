@@ -1,0 +1,10 @@
+# Dev/test dependencies — install on top of requirements.txt:
+#   pip install -r requirements.txt -r requirements-dev.txt
+
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+httpx                          # already in requirements.txt, listed for test client
+ruff==0.8.5                    # linter + formatter
+mypy==1.13.0                   # static type checking
+pre-commit==4.0.1              # git hooks (optional)
